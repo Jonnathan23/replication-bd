@@ -23,26 +23,46 @@ interface Change {
     id: number;
     metodo: string;
     tabla: string;
-    descripcion: string;
+    descripcion: any;
     fecha: string;
+}
+
+// Función para procesar los valores del JSON correctamente
+function formatValue(value: any): string {
+    if (typeof value === 'number') {
+        return value.toString();
+    } else if (typeof value === 'string') {
+        if (Date.parse(value)) { // Detecta si es una fecha válida
+            return `'${new Date(value).toISOString()}'`;
+        }
+        return `'${value.replace(/'/g, "''")}'`; // Escapa comillas simples
+    }
+    return `'${JSON.stringify(value).replace(/'/g, "''")}'`; // Manejo seguro
 }
 
 // Función para construir la consulta SQL
 function buildQuery(change: Change): string {
-    const data = JSON.parse(change.descripcion);
+    let data;
+    try {
+        // Verifica si ya es un objeto o necesita parseo
+        data = typeof change.descripcion === 'object' ? change.descripcion : JSON.parse(change.descripcion);
+    } catch (error: any) {
+        console.error(colors.bgRed(`Error al parsear JSON en ${change.tabla}: ${error.message}`));
+        return '';
+    }
+
     let query = '';
-    
     if (change.metodo === 'INSERT') {
         const columns = Object.keys(data).join(', ');
-        const values = Object.values(data).map(value => `'${value}'`).join(', ');
+        const values = Object.values(data).map(formatValue).join(', ');
         query = `INSERT INTO ${change.tabla} (${columns}) VALUES (${values});`;
     } else if (change.metodo === 'UPDATE') {
         const setValues = Object.entries(data)
-            .map(([key, value]) => `${key} = '${value}'`)
+            .map(([key, value]) => `${key} = ${formatValue(value)}`)
             .join(', ');
-        query = `UPDATE ${change.tabla} SET ${setValues} WHERE id = '${data.id}';`;
+        query = `UPDATE ${change.tabla} SET ${setValues} WHERE id = ${data.id};`;
     } else if (change.metodo === 'DELETE') {
-        query = `DELETE FROM ${change.tabla} WHERE id = '${data.id}';`;
+        query = `DELETE FROM ${change.tabla} WHERE id = ${data.id};`;
     }
     return query;
 }
@@ -52,30 +72,38 @@ async function syncChanges(sourceDB: Pool, targetDB: Pool, sourceName: string, t
     try {
         console.log(colors.cyan.bold(`Sincronizando desde ${sourceName} a ${targetName}...`));
         const client = await sourceDB.connect();
-        const result = await client.query<Change>('SELECT * FROM "database_changes" ORDER BY id ASC');
-        
-        if (result.rows.length === 0) {
-            console.log(colors.gray(`Sin cambios en ${sourceName}.`));
+        try {
+            const result = await client.query<Change>('SELECT * FROM "database_changes" ORDER BY id ASC');
+
+            if (result.rows.length === 0) {
+                console.log(colors.gray(`Sin cambios en ${sourceName}.`));
+                return;
+            }
+
+            for (const row of result.rows) {
+                const sqlQuery = buildQuery(row);
+                if (!sqlQuery) {
+                    console.log(colors.red(`Saltando fila con error en JSON en ${sourceName}`));
+                    continue;
+                }
+                console.log(colors.yellow(`Ejecutando en ${targetName}:`), sqlQuery);
+                await targetDB.query(sqlQuery);
+                await sourceDB.query('DELETE FROM "database_changes" WHERE id = $1', [row.id]);
+            }
+            console.log(colors.green.bold(`Sincronización de ${sourceName} a ${targetName} completa.`));
+        } catch (error: any) {
+            console.error(colors.bgRed(`Error sincronizando de ${sourceName} a ${targetName}: ${error.message}`));
+        } finally {
             client.release();
-            return;
         }
-        
-        for (const row of result.rows) {
-            const sqlQuery = buildQuery(row);
-            console.log(colors.yellow(`Ejecutando en ${targetName}:`), sqlQuery);
-            await targetDB.query(sqlQuery);
-            await sourceDB.query('DELETE FROM "database_changes" WHERE id = $1', [row.id]);
-        }
-        client.release();
-        console.log(colors.green.bold(`Sincronización de ${sourceName} a ${targetName} completa.`));
-    } catch (error) {
-        console.error(colors.bgRed(`Error sincronizando de ${sourceName} a ${targetName}:`), error);
+    } catch (error: any) {
+        console.error(colors.bgRed(`Error conectando a ${sourceName}: ${error.message}`));
     }
 }
 
 // Ejecutar la sincronización cada 10 segundos
 cron.schedule('*/10 * * * * *', async () => {
-    console.log(colors.blue('Iniciando sincronización...'));
+    console.log(colors.blue('\nIniciando sincronización...'));
     await syncChanges(primaryDB, secondaryDB, 'PrimaryDB', 'SecondaryDB');
     await syncChanges(secondaryDB, primaryDB, 'SecondaryDB', 'PrimaryDB');
     console.log(colors.magenta('Sincronización finalizada.'));

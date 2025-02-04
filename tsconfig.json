@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "target": "ESNext",
+      "strict": true,
+      "outDir": "dist",
+      "rootDir": ".",
+      "esModuleInterop": true
+    },
+    "include": ["synchronization.ts"],
+    "exclude": ["node_modules"]
+  }
+  
