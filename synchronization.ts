@@ -77,7 +77,7 @@ async function syncChanges(sourceDB: Pool, targetDB: Pool, sourceName: string, t
             const result = await client.query<Change>('SELECT * FROM "database_changes" ORDER BY id ASC');
 
             if (result.rows.length === 0) {
-                console.log(colors.gray(`Sin cambios en ${sourceName}.`));
+                console.log(colors.gray(`Sin cambios en ${sourceName}.\n`));
                 return;
             }
 
@@ -103,7 +103,7 @@ async function syncChanges(sourceDB: Pool, targetDB: Pool, sourceName: string, t
 }
 
 // Ejecutar la sincronización cada 10 segundos
-cron.schedule('*/10 * * * * *', async () => {
+cron.schedule('*/5 * * * * *', async () => {
     console.log(colors.blue('Iniciando sincronización...'));
     await syncChanges(primaryDB, secondaryDB, 'PrimaryDB', 'SecondaryDB');
     await syncChanges(secondaryDB, primaryDB, 'SecondaryDB', 'PrimaryDB');
