@@ -27,24 +27,22 @@ interface Change {
     fecha: string;
 }
 
-// Función para procesar los valores del JSON correctamente
-function formatValue(value: any): string {
-    if (typeof value === 'number') {
-        return value.toString();
-    } else if (typeof value === 'string') {
-        if (Date.parse(value)) { // Detecta si es una fecha válida
-            return `'${new Date(value).toISOString()}'`;
-        }
-        return `'${value.replace(/'/g, "''")}'`; // Escapa comillas simples
+// Función para verificar si la base de datos está disponible
+async function checkDatabaseAvailability(db: Pool, dbName: string): Promise<boolean> {
+    try {
+        const client = await db.connect();
+        client.release();
+        return true;
+    } catch (error) {
+        console.error(colors.bgRed(`Máquina ${dbName} no se encuentra disponible.`));
+        return false;
     }
-    return `'${JSON.stringify(value).replace(/'/g, "''")}'`; // Manejo seguro
 }
 
 // Función para construir la consulta SQL
 function buildQuery(change: Change): string {
     let data;
     try {
-        // Verifica si ya es un objeto o necesita parseo
         data = typeof change.descripcion === 'object' ? change.descripcion : JSON.parse(change.descripcion);
     } catch (error: any) {
         console.error(colors.bgRed(`Error al parsear JSON en ${change.tabla}: ${error.message}`));
@@ -54,21 +52,24 @@ function buildQuery(change: Change): string {
     let query = '';
     if (change.metodo === 'INSERT') {
         const columns = Object.keys(data).join(', ');
-        const values = Object.values(data).map(formatValue).join(', ');
+        const values = Object.values(data).map(value => `'${value}'`).join(', ');
         query = `INSERT INTO ${change.tabla} (${columns}) VALUES (${values});`;
     } else if (change.metodo === 'UPDATE') {
         const setValues = Object.entries(data)
-            .map(([key, value]) => `${key} = ${formatValue(value)}`)
+            .map(([key, value]) => `${key} = '${value}'`)
             .join(', ');
-        query = `UPDATE ${change.tabla} SET ${setValues} WHERE id = ${data.id};`;
+        query = `UPDATE ${change.tabla} SET ${setValues} WHERE id = '${data.id}';`;
     } else if (change.metodo === 'DELETE') {
-        query = `DELETE FROM ${change.tabla} WHERE id = ${data.id};`;
+        query = `DELETE FROM ${change.tabla} WHERE id = '${data.id}';`;
     }
     return query;
 }
 
 // Función para sincronizar los cambios
 async function syncChanges(sourceDB: Pool, targetDB: Pool, sourceName: string, targetName: string): Promise<void> {
+    if (!(await checkDatabaseAvailability(sourceDB, sourceName))) return;
+    if (!(await checkDatabaseAvailability(targetDB, targetName))) return;
+
     try {
         console.log(colors.cyan.bold(`Sincronizando desde ${sourceName} a ${targetName}...`));
         const client = await sourceDB.connect();
@@ -103,7 +104,7 @@ async function syncChanges(sourceDB: Pool, targetDB: Pool, sourceName: string, t
 
 // Ejecutar la sincronización cada 10 segundos
 cron.schedule('*/10 * * * * *', async () => {
-    console.log(colors.blue('\nIniciando sincronización...'));
+    console.log(colors.blue('Iniciando sincronización...'));
     await syncChanges(primaryDB, secondaryDB, 'PrimaryDB', 'SecondaryDB');
     await syncChanges(secondaryDB, primaryDB, 'SecondaryDB', 'PrimaryDB');
     console.log(colors.magenta('Sincronización finalizada.'));
