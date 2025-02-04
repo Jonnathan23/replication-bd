@@ -1,0 +1,26 @@
+{
+  "name": "replicacion",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npx ts-node synchronization.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "colors": "^1.4.0",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.11.11"
+  },
+
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
